@@ -1,7 +1,8 @@
 (ns swiss.arrows.test
-  (:require [clojure.string :as str]
-            [swiss.arrows :refer :all]
-            [clojure.test :refer :all]))
+  (:require [clojure.string      :as str]
+            [swiss.arrows        :refer :all]
+            [clojure.test        :refer :all]
+            [clojure.algo.monads :refer :all]))
 
 (deftest diamond
   (testing "the diamond wand"
@@ -19,6 +20,8 @@
            (range -1 13))))
 
   (testing "vector"
+    (is (= (-<> [])
+           []))
     (is (= (-<> 10 [1 2 3 <> 4 5])
            [1 2 3 10 4 5]))
     (is (vector? (-<> 10 [1 2 3 <> 4 5])))
@@ -201,11 +204,27 @@
 
 (deftest applicative
   (testing "applicative arrows"
+    (is (= (apply->> [] +)
+           0))
+    (is (= (apply->> [1] +)
+           1))
+    (is (= (apply->> [1 2] +)
+           3))
+    (is (= (apply->> [[]] concat +)
+           0))
+    (is (= (apply->> [[1]] concat +)
+           1))
+    (is (= (apply->> [[1 2]] concat +)
+           3))
     (is (= (apply->> [[1 2] [3 4]] concat +)
            10))
     (is (= (apply->> [[1 2] [3 4]] (concat [5 6]))
            [5 6 1 2 3 4]))
+    (is (= (apply->> [[1 2] [3 4]] (concat [[5 6]]))
+           [[5 6] 1 2 3 4]))
     (is (= (apply->> [[1 2] [3 4]] (concat [5 6]) (+))
+           21))
+    (is (= (apply->> [[1 2] [3 4]] (concat [5 6]) +)
            21))
     (is (= (apply-> [[1 2] [3 4]] concat +)
            10))
@@ -255,3 +274,52 @@
               (str "\"you\" \"got here\"\n"
                    "\"got here\" \"you\"\n"
                    "\"got\" \"you\" \"here\"\n")])))))
+
+(deftest monad-warmup
+  (testing "basic monadic operators"
+    (is (= (domonad sequence-m
+                    [a (range 5)
+                     b (range a)]
+                    (* a b))
+           (for [a (range 5), b (range a)] (* a b))))
+    (with-monad set-m
+      (is (= ((m-chain [(fn [v] #{v (* 2 v)})
+                        (fn [v] #{v (* 3 v)})])
+              1)
+             #{1 2 3 6})))
+    ;; via http://bit.ly/1gJRHT4
+    (letfn [(rng [seed]
+              (let [m 259200
+                    v (/ (float seed) (float m))
+                    n (rem (+ 54773 (* 7141 seed)) m)]
+                [v n]))
+            (val-seq [f seed]
+              (lazy-seq
+               (let [[val next] (f seed)]
+                 (cons val (val-seq f next)))))
+            (bumper  [v] (fn [s] [v (inc s)]))
+            (summer  [v] (fn [s] [v (+ s v)]))
+            ;; via http://bit.ly/1i7rvSP
+            (welford [v] (fn [s] [v (let [count    (inc (:count s))
+                                         sum      (+ v (:sum s))
+                                         old-mean (:mean s)
+                                         ssq      (:sum-squared-residuals s)
+                                         new-mean (/ (float sum) count)]
+                                     {:count count
+                                      :sum   sum
+                                      :mean  new-mean
+                                      :sum-squared-residuals
+                                      ssq + (* (- v old-mean) (- v new-mean))
+                                      })]))]
+      (with-monad state-m
+        (is (=
+             3
+             (with-monad state-m
+               (reduce
+                (fn [acc val]
+                  (let [vs ((m-bind
+                             (m-result acc)
+                             bumper) acc)]
+                    (vs 1)))
+                0
+                [42 43 44]))))))))

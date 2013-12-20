@@ -274,30 +274,34 @@
               (str "\"you\" \"got here\"\n"
                    "\"got here\" \"you\"\n"
                    "\"got\" \"you\" \"here\"\n")])))))
-
+;; via http://bit.ly/18DrEKB
 (defn- rng [seed]
   (let [m 259200
         v (/ (float seed) (float m))
         n (rem (+ 54773 (* 7141 seed)) m)]
     [v n]))
+
 (defn- val-seq [f seed]
   (lazy-seq
    (let [[val next] (f seed)]
      (cons val (val-seq f next)))))
+
 (defn- seq-sum [xs] (apply + xs))
+
 (defn- seq-mean [xs] (/ (float (seq-sum xs)) (count xs)))
+
 (defn- seq-variance [xs]
   (let [m (seq-mean xs)
         sq #(* % %)]
     (seq-mean (for [x xs] (sq (- x m))))))
+
 ;; via http://bit.ly/1i7rvSP
 (defn- roughly [v t slop] (and (>= v (- t slop)) (<= v (+ t slop))))
+
 (defn- bumper  [v] (fn [s] [v (inc s)]))
+
 (defn- summer  [v] (fn [s] [v (+ s v)]))
-(defn- value-seq [f seed]
-  (lazy-seq
-   (let [[v next] (f seed)]
-     (cons v (value-seq f next)))))
+
 (defn- welford [v] (fn [s] [v (let [count    (inc (:count s))
                                    sum      (+ v (:sum s))
                                    old-mean (:mean s)
@@ -367,6 +371,6 @@
       (let [gaussian3
             ((m-lift 1 #(- % 6.0))
              (m-reduce + (replicate 12 rng)))
-            xs (take 1000 (value-seq gaussian3 123456))]
+            xs (take 1000 (val-seq gaussian3 123456))]
         (is (roughly (seq-mean xs) 0 0.1))
         (is (roughly (seq-variance xs) 1 0.05))))))

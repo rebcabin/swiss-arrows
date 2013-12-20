@@ -212,7 +212,16 @@
     (is (= (apply-> [1 2 3 4] (concat [[5 6]]))
            [1 2 3 4 5 6]))
     (is (= (apply-> [1 2 3 4] (concat [[5 6]]) (+))
-           21))))
+           21))
+    (is (= '()
+           (apply-> [])))
+    (is (= '()
+           (apply-> [] concat)))
+    (is (= '()
+           (apply-> '())))
+    (is (= '()
+           (apply-> [] concat)))
+    ))
 
 (defn wostr* [f]            ; [<results of f>, <side effects to *out* from f>]
   [(f) (with-out-str (f))])

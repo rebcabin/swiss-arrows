@@ -275,6 +275,41 @@
                    "\"got here\" \"you\"\n"
                    "\"got\" \"you\" \"here\"\n")])))))
 
+(defn- rng [seed]
+  (let [m 259200
+        v (/ (float seed) (float m))
+        n (rem (+ 54773 (* 7141 seed)) m)]
+    [v n]))
+(defn- val-seq [f seed]
+  (lazy-seq
+   (let [[val next] (f seed)]
+     (cons val (val-seq f next)))))
+(defn- seq-sum [xs] (apply + xs))
+(defn- seq-mean [xs] (/ (float (seq-sum xs)) (count xs)))
+(defn- seq-variance [xs]
+  (let [m (seq-mean xs)
+        sq #(* % %)]
+    (seq-mean (for [x xs] (sq (- x m))))))
+;; via http://bit.ly/1i7rvSP
+(defn- roughly [v t slop] (and (>= v (- t slop)) (<= v (+ t slop))))
+(defn- bumper  [v] (fn [s] [v (inc s)]))
+(defn- summer  [v] (fn [s] [v (+ s v)]))
+(defn- value-seq [f seed]
+  (lazy-seq
+   (let [[v next] (f seed)]
+     (cons v (value-seq f next)))))
+(defn- welford [v] (fn [s] [v (let [count    (inc (:count s))
+                                   sum      (+ v (:sum s))
+                                   old-mean (:mean s)
+                                   ssq      (:sum-squared-residuals s)
+                                   new-mean (/ (float sum) count)]
+                               {:count count
+                                :sum   sum
+                                :mean  new-mean
+                                :sum-squared-residuals
+                                (+ ssq (* (- v old-mean) (- v new-mean)))
+                                })]))
+
 (deftest monad-warmup
   (testing "basic monadic operators"
     (is (= (domonad sequence-m
@@ -287,59 +322,51 @@
                         (fn [v] #{v (* 3 v)})])
               1)
              #{1 2 3 6})))
-    ;; via http://bit.ly/1gJRHT4
-    (letfn [(rng [seed]
-              (let [m 259200
-                    v (/ (float seed) (float m))
-                    n (rem (+ 54773 (* 7141 seed)) m)]
-                [v n]))
-            (val-seq [f seed]
-              (lazy-seq
-               (let [[val next] (f seed)]
-                 (cons val (val-seq f next)))))
-            (seq-sum [xs] (apply + xs))
-            (seq-mean [xs] (/ (float (seq-sum xs)) (count xs)))
-            (seq-variance [xs]
-              (let [m (seq-mean xs)
-                    sq #(* % %)]
-                (seq-mean (for [x xs] (sq (- x m))))))
-            ;; via http://bit.ly/1i7rvSP
-            (roughly [v t slop] (and (>= v (- t slop)) (<= v (+ t slop))))
-            (bumper  [v] (fn [s] [v (inc s)]))
-            (summer  [v] (fn [s] [v (+ s v)]))
-            (value-seq [f seed]
-              (lazy-seq
-               (let [[v next] (f seed)]
-                 (cons v (value-seq f next)))))
-            (welford [v] (fn [s] [v (let [count    (inc (:count s))
-                                         sum      (+ v (:sum s))
-                                         old-mean (:mean s)
-                                         ssq      (:sum-squared-residuals s)
-                                         new-mean (/ (float sum) count)]
-                                     {:count count
-                                      :sum   sum
-                                      :mean  new-mean
-                                      :sum-squared-residuals
-                                      (+ ssq (* (- v old-mean) (- v new-mean)))
-                                      })]))]
-      (with-monad state-m
-        (is (=
-             3
-             (with-monad state-m
-               (reduce
-                (fn [acc val]
-                  (let [vs ((m-bind
-                             (m-result acc)
-                             bumper) acc)]
-                    (vs 1)))
-                0
-                [42 43 44]))))
-        (is (roughly 1   1   0  ))
-        (is (roughly 1.0 1.0 0.1))
-        (let [gaussian3
-              ((m-lift 1 #(- % 6.0))
-               (m-reduce + (replicate 12 rng)))
-              xs (take 1000 (value-seq gaussian3 123456))]
-          (is (roughly (seq-mean xs) 0 0.1))
-          (is (roughly (seq-variance xs) 1 0.05))
-          )))))
+    (with-monad state-m
+      (is (=
+           3
+           (with-monad state-m
+             (reduce
+              (fn [acc val]
+                (let [vs
+                      ;; generate a state-monad item (fs2vs) from the val
+                      ((m-bind
+                        (m-result val)
+                        bumper)
+                       ;; call the state-monad item (fs2vs) on acc
+                       acc)]
+                  ;; fetch the state portion out of vs
+                  (vs 1)
+                  ))
+              0 ;; initial value of acc
+              [42 43 44]))))
+      (is (=
+           129
+           (with-monad state-m
+             (reduce
+              (fn [acc val]
+                (let [vs
+                      ((m-bind
+                        (m-result val)
+                        summer) acc)]
+                  (vs 1)))
+              0
+              [42 43 44]))))
+      (is (=
+           3
+           (reduce
+            (fn [acc val]
+              (domonad state-m
+                       [v2 (m-result val)
+                        vs (bumper v2)]
+                       (vs 1)))
+            0
+            [42 43 44])))
+      (is (roughly 1   1   0  ))
+      (is (roughly 1.0 1.0 0.1))
+      (let [gaussian3
+            ((m-lift 1 #(- % 6.0))
+             (m-reduce + (replicate 12 rng)))
+            xs (take 1000 (value-seq gaussian3 123456))]
+        (is (roughly (seq-mean xs) 0 0.1))
+        (is (roughly (seq-variance xs) 1 0.05))))))

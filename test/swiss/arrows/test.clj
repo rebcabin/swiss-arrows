@@ -297,9 +297,20 @@
               (lazy-seq
                (let [[val next] (f seed)]
                  (cons val (val-seq f next)))))
+            (seq-sum [xs] (apply + xs))
+            (seq-mean [xs] (/ (float (seq-sum xs)) (count xs)))
+            (seq-variance [xs]
+              (let [m (seq-mean xs)
+                    sq #(* % %)]
+                (seq-mean (for [x xs] (sq (- x m))))))
+            ;; via http://bit.ly/1i7rvSP
+            (roughly [v t slop] (and (>= v (- t slop)) (<= v (+ t slop))))
             (bumper  [v] (fn [s] [v (inc s)]))
             (summer  [v] (fn [s] [v (+ s v)]))
-            ;; via http://bit.ly/1i7rvSP
+            (value-seq [f seed]
+              (lazy-seq
+               (let [[v next] (f seed)]
+                 (cons v (value-seq f next)))))
             (welford [v] (fn [s] [v (let [count    (inc (:count s))
                                          sum      (+ v (:sum s))
                                          old-mean (:mean s)
@@ -309,7 +320,7 @@
                                       :sum   sum
                                       :mean  new-mean
                                       :sum-squared-residuals
-                                      ssq + (* (- v old-mean) (- v new-mean))
+                                      (+ ssq (* (- v old-mean) (- v new-mean)))
                                       })]))]
       (with-monad state-m
         (is (=
@@ -322,4 +333,13 @@
                              bumper) acc)]
                     (vs 1)))
                 0
-                [42 43 44]))))))))
+                [42 43 44]))))
+        (is (roughly 1   1   0  ))
+        (is (roughly 1.0 1.0 0.1))
+        (let [gaussian3
+              ((m-lift 1 #(- % 6.0))
+               (m-reduce + (replicate 12 rng)))
+              xs (take 1000 (value-seq gaussian3 123456))]
+          (is (roughly (seq-mean xs) 0 0.1))
+          (is (roughly (seq-variance xs) 1 0.05))
+          )))))

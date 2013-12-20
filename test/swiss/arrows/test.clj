@@ -357,15 +357,17 @@
               0
               [42 43 44]))))
       (is (=
-           3
-           (reduce
-            (fn [acc val]
-              (domonad state-m
-                       [v2 (m-result val)
-                        vs (bumper v2)]
-                       (vs 1)))
-            0
-            [42 43 44])))
+           {:count 3, :sum 129, :mean 43.0, :sum-squared-residuals 2.0}
+           (with-monad state-m
+             (reduce
+              (fn [acc val]
+                (let [vs
+                      ((m-bind
+                        (m-result val)
+                        welford) acc)]
+                  (vs 1)))
+              {:count 0, :sum 0, :mean 0, :sum-squared-residuals 0}
+              [42 43 44]))))
       (is (roughly 1   1   0  ))
       (is (roughly 1.0 1.0 0.1))
       (let [gaussian3

@@ -314,6 +314,28 @@
                                 (+ ssq (* (- v old-mean) (- v new-mean)))
                                 })]))
 
+(def ^:private welford-initial-state
+  {:count 0, :sum 0, :mean 0, :sum-squared-residuals 0})
+
+(defn- run [fv2s2vs initial-state coll]
+  (with-monad state-m
+    (reduce
+     (fn [acc val]
+       (let [vs
+             ((m-bind
+               ;; generate a state-monad item (fs2vs) from the val
+               (m-result val)
+               ;; shove it through a monadic function (fv2s2vs)
+               fv2s2vs)
+              ;; call the state-monad item (fs2vs) on acc
+              acc)]
+         ;; fetch the state portion out of the result
+         (vs 1)
+         ;; that becomes the new value of acc
+         ))
+     initial-state
+     coll)))
+
 (deftest monad-warmup
   (testing "basic monadic operators"
     (is (= (domonad sequence-m
@@ -326,53 +348,22 @@
                         (fn [v] #{v (* 3 v)})])
               1)
              #{1 2 3 6})))
-    (with-monad state-m
-      (is (=
-           3
-           (with-monad state-m
-             (reduce
-              (fn [acc val]
-                (let [vs
-                      ;; generate a state-monad item (fs2vs) from the val
-                      ((m-bind
-                        (m-result val)
-                        bumper)
-                       ;; call the state-monad item (fs2vs) on acc
-                       acc)]
-                  ;; fetch the state portion out of vs
-                  (vs 1)
-                  ))
-              0 ;; initial value of acc
-              [42 43 44]))))
-      (is (=
-           129
-           (with-monad state-m
-             (reduce
-              (fn [acc val]
-                (let [vs
-                      ((m-bind
-                        (m-result val)
-                        summer) acc)]
-                  (vs 1)))
-              0
-              [42 43 44]))))
-      (is (=
-           {:count 3, :sum 129, :mean 43.0, :sum-squared-residuals 2.0}
-           (with-monad state-m
-             (reduce
-              (fn [acc val]
-                (let [vs
-                      ((m-bind
-                        (m-result val)
-                        welford) acc)]
-                  (vs 1)))
-              {:count 0, :sum 0, :mean 0, :sum-squared-residuals 0}
-              [42 43 44]))))
-      (is (roughly 1   1   0  ))
-      (is (roughly 1.0 1.0 0.1))
-      (let [gaussian3
-            ((m-lift 1 #(- % 6.0))
-             (m-reduce + (replicate 12 rng)))
-            xs (take 1000 (val-seq gaussian3 123456))]
-        (is (roughly (seq-mean xs) 0 0.1))
-        (is (roughly (seq-variance xs) 1 0.05))))))
+    (is (=   3 (run bumper 0 [42 43 44])))
+    (is (= 129 (run summer 0 [42 43 44])))
+    (is (= {:count 3, :sum 129, :mean 43.0, :sum-squared-residuals 2.0}
+           (run welford
+                welford-initial-state
+                [42 43 44])))
+    (is (roughly 1   1   0  ))
+    (is (roughly 1.0 1.0 0.1))
+
+    (let [xs
+          (with-monad state-m
+            (let [gaussian3
+                  ((m-lift 1 #(- % 6.0))
+                   (m-reduce + (replicate 12 rng)))]
+              (take 1000 (val-seq gaussian3 123456))))]
+      (is (roughly (seq-mean xs) 0 0.1))
+      (is (roughly (seq-variance xs) 1 0.05))
+      xs))
+  )

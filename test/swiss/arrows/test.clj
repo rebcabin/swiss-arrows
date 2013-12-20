@@ -357,13 +357,16 @@
     (is (roughly 1   1   0  ))
     (is (roughly 1.0 1.0 0.1))
 
-    (let [xs
-          (with-monad state-m
-            (let [gaussian3
-                  ((m-lift 1 #(- % 6.0))
-                   (m-reduce + (replicate 12 rng)))]
-              (take 1000 (val-seq gaussian3 123456))))]
+    (let [xs (with-monad state-m
+               (let [gaussian3
+                     ((m-lift 1 #(- % 6.0))
+                      (m-reduce + (replicate 12 rng)))]
+                 (take 1000 (val-seq gaussian3 123456))))]
       (is (roughly (seq-mean xs) 0 0.1))
       (is (roughly (seq-variance xs) 1 0.05))
-      xs))
+      (let [s (run welford welford-initial-state xs)]
+        (is (= 1000 (:count s)))
+        (is (roughly (:mean s) 0 0.1))
+        (is (roughly (/ (:sum-squared-residuals s) (dec (:count s))) 1 0.05))
+        )))
   )

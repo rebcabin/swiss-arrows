@@ -274,6 +274,7 @@
               (str "\"you\" \"got here\"\n"
                    "\"got here\" \"you\"\n"
                    "\"got\" \"you\" \"here\"\n")])))))
+
 ;; via http://bit.ly/18DrEKB
 (defn- rng [seed]
   (let [m 259200
@@ -314,27 +315,31 @@
                                 (+ ssq (* (- v old-mean) (- v new-mean)))
                                 })]))
 
-(def ^:private welford-initial-state
+(def ^:private welford-zero
   {:count 0, :sum 0, :mean 0, :sum-squared-residuals 0})
 
-(defn- run [fv2s2vs initial-state coll]
+(defn- run [initial-state fv2s2vs coll]
   (with-monad state-m
     (reduce
      (fn [acc val]
        (let [vs
              ((m-bind
-               ;; generate a state-monad item (fs2vs) from the val
-               (m-result val)
-               ;; shove it through a monadic function (fv2s2vs)
-               fv2s2vs)
-              ;; call the state-monad item (fs2vs) on acc
-              acc)]
-         ;; fetch the state portion out of the result
-         (vs 1)
-         ;; that becomes the new value of acc
-         ))
+               (m-result val) ; generate a state-monad item (fs2vs) from the val
+               fv2s2vs)  ; shove it through a monadic function (fv2s2vs)
+              acc)]      ; call the state-monad item (fs2vs) on acc
+         (vs 1)          ; fetch the state portion out of the result
+         ))              ; that becomes the new value of acc
      initial-state
      coll)))
+
+;; A faster and simpler alternative is to fold state extractor over a
+;; sequence of monadic values.
+
+(defn- state-extractor [s fs2vs] (get (fs2vs s) 1))
+(defn- run2 [zero monadic-statistic-constructor data]
+  (reduce state-extractor
+          zero
+          (map monadic-statistic-constructor data)))
 
 (deftest monad-warmup
   (testing "basic monadic operators"
@@ -348,12 +353,26 @@
                         (fn [v] #{v (* 3 v)})])
               1)
              #{1 2 3 6})))
-    (is (=   3 (run bumper 0 [42 43 44])))
-    (is (= 129 (run summer 0 [42 43 44])))
-    (is (= {:count 3, :sum 129, :mean 43.0, :sum-squared-residuals 2.0}
-           (run welford
-                welford-initial-state
-                [42 43 44])))
+
+    (let [data [42 43 44]
+          scount   3
+          smean   43.0
+          ssqres   2.0
+          ssum   129
+          swelf  {:count scount
+                 ,:sum ssum
+                 ,:mean smean
+                 ,:sum-squared-residuals ssqres}]
+
+      (is (= scount (run 0 bumper data)))
+      (is (= ssum   (run 0 summer data)))
+      (is (= swelf  (run welford-zero welford data)))
+
+      (is (= scount (run2 0 bumper data)))
+      (is (= ssum   (run2 0 summer data)))
+      (is (= swelf  (run2 welford-zero welford data)))
+      )
+
     (is (roughly 1   1   0  ))
     (is (roughly 1.0 1.0 0.1))
 
@@ -364,9 +383,11 @@
                  (take 1000 (val-seq gaussian3 123456))))]
       (is (roughly (seq-mean xs) 0 0.1))
       (is (roughly (seq-variance xs) 1 0.05))
-      (let [s (run welford welford-initial-state xs)]
+      (let [s (time (run welford-zero welford xs))]
         (is (= 1000 (:count s)))
         (is (roughly (:mean s) 0 0.1))
-        (is (roughly (/ (:sum-squared-residuals s) (dec (:count s))) 1 0.05))
-        )))
-  )
+        (is (roughly (/ (:sum-squared-residuals s) (dec (:count s))) 1 0.05)))
+      (let [s (time (run2 welford-zero welford xs))]
+        (is (= 1000 (:count s)))
+        (is (roughly (:mean s) 0 0.1))
+        (is (roughly (/ (:sum-squared-residuals s) (dec (:count s))) 1 0.05))))))

@@ -288,11 +288,6 @@
 ;;; | |__| (_) | | | | | | |_) | (_) \__ \ | |_| | (_) | | | |
 ;;;  \____\___/|_| |_| |_| .__/ \___/|___/_|\__|_|\___/|_| |_|
 ;;;                      |_|
-;;;  _____                       _
-;;; | ____|_  _____ ___ _ __ ___(_)___  ___  ___
-;;; |  _| \ \/ / __/ _ \ '__/ __| / __|/ _ \/ __|
-;;; | |___ >  < (_|  __/ | | (__| \__ \  __/\__ \
-;;; |_____/_/\_\___\___|_|  \___|_|___/\___||___/
 
 ;;; via http://bit.ly/18DrEKB
 
@@ -439,47 +434,68 @@
     (is (roughly 1   1   0  ))
     (is (roughly 1.0 1.0 0.1))
 
-    (let [gaussian1
-          ;; These all emulate a gaussian with an 11-th-order polynomial
-          ;; via the central-limit theorem.
-          (domonad state-m [x1 rng,  x2 rng,  x3 rng,
-                            x4 rng,  x5 rng,  x6 rng,
-                            x7 rng,  x8 rng,  x9 rng,
-                            x10 rng, x11 rng, x12 rng ]
-                   (- (+ x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12) 6.0))
+;;;   ___                 _            __   __          _
+;;;  / __|__ _ _  _ _____(_)__ _ _ _   \ \ / /__ _ _ __(_)___ _ _  ___
+;;; | (_ / _` | || (_-<_-< / _` | ' \   \ V / -_) '_(_-< / _ \ ' \(_-<
+;;;  \___\__,_|\_,_/__/__/_\__,_|_||_|   \_/\___|_| /__/_\___/_||_/__/
 
-          gaussian2
-          (fn [initial-seed]
+    (let ;; These all emulate a gaussian with an 11-th-order polynomial
+         ;; via the central-limit theorem.
+
+        [gaussian1
+         (domonad state-m [x1 rng,  x2 rng,  x3 rng,
+                           x4 rng,  x5 rng,  x6 rng,
+                           x7 rng,  x8 rng,  x9 rng,
+                           x10 rng, x11 rng, x12 rng ]
+                  (- (+ x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12) 6.0))
+
+         gaussian2
+         (with-monad state-m
+           ((m-lift 1 #(- % 6.0))
+            (m-reduce + (repeat 12 rng))))
+
+         gaussian3
+         (fn [initial-seed]
            (let [s (-<> ((domonad state-m
-                                  [x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
-                                   x1 (m-bind rng-c summer-c)
+                                  [_ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
+                                   _ (m-bind rng-c summer-c)
                                    ]
-                                  x1)
+                                  _)
                          {:sum 0 :seed initial-seed})
                         (get 1))]
              [(- (:sum s) 6.0) (:seed s)]
              ))
 
-          gaussian3
-          (with-monad state-m
-            ((m-lift 1 #(- % 6.0))
-             (m-reduce + (repeat 12 rng))))]
+         gaussian4
+         (fn [initial-seed]
+           (let [mc (with-monad state-m
+                      (m-chain
+                       (repeat 12 (fn [_] (m-bind rng-c summer-c)))))
+                 s (-<> ((mc nil) {:sum 0 :seed initial-seed})
+                        (get 1))]
+             [(- (:sum s) 6.0) (:seed s)]
+             ))
+
+         ]
 
       (is (= (nth (val-seq gaussian1 123456) 1000)
              (nth (val-seq gaussian2 123456) 1000)))
 
       (is (= (nth (val-seq gaussian1 123456) 1000)
              (nth (val-seq gaussian3 123456) 1000)))
+
+      (is (= (nth (val-seq gaussian1 123456) 1000)
+             (nth (val-seq gaussian4 123456) 1000)))
       )
 
     (let [xs (with-monad state-m

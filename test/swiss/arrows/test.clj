@@ -244,6 +244,7 @@
 
 (defn wostr* [f]            ; [<results of f>, <side effects to *out* from f>]
   [(f) (with-out-str (f))])
+
 (defmacro wostr [& body]    ; syntactic sugar on wostr*
   `(wostr* (fn [] ~@body)))
 
@@ -275,7 +276,26 @@
                    "\"got here\" \"you\"\n"
                    "\"got\" \"you\" \"here\"\n")])))))
 
-;; via http://bit.ly/18DrEKB
+;;;  __  __                       _ _
+;;; |  \/  | ___  _ __   __ _  __| (_) ___
+;;; | |\/| |/ _ \| '_ \ / _` |/ _` | |/ __|
+;;; | |  | | (_) | | | | (_| | (_| | | (__
+;;; |_|  |_|\___/|_| |_|\__,_|\__,_|_|\___|
+;;;
+;;;   ____                                _ _   _
+;;;  / ___|___  _ __ ___  _ __   ___  ___(_) |_(_) ___  _ __
+;;; | |   / _ \| '_ ` _ \| '_ \ / _ \/ __| | __| |/ _ \| '_ \
+;;; | |__| (_) | | | | | | |_) | (_) \__ \ | |_| | (_) | | | |
+;;;  \____\___/|_| |_| |_| .__/ \___/|___/_|\__|_|\___/|_| |_|
+;;;                      |_|
+;;;  _____                       _
+;;; | ____|_  _____ ___ _ __ ___(_)___  ___  ___
+;;; |  _| \ \/ / __/ _ \ '__/ __| / __|/ _ \/ __|
+;;; | |___ >  < (_|  __/ | | (__| \__ \  __/\__ \
+;;; |_____/_/\_\___\___|_|  \___|_|___/\___||___/
+
+;;; via http://bit.ly/18DrEKB
+
 (defn- rng [seed]
   (let [m 259200
         v (/ (float seed) (float m))
@@ -296,7 +316,8 @@
         sq #(* % %)]
     (seq-mean (for [x xs] (sq (- x m))))))
 
-;; via http://bit.ly/1i7rvSP
+;;; via http://bit.ly/1i7rvSP
+
 (defn- roughly [v t slop] (and (>= v (- t slop)) (<= v (+ t slop))))
 
 (defn- bumper  [v] (fn [s] [v (inc s)]))
@@ -332,14 +353,56 @@
      initial-state
      coll)))
 
-;; A faster and simpler alternative is to fold state extractor over a
-;; sequence of monadic values.
+;;; A faster and simpler alternative is to fold state extractor over a
+;;; sequence of monadic values.
 
 (defn- state-extractor [s fs2vs] (get (fs2vs s) 1))
+
 (defn- run2 [zero monadic-statistic-constructor data]
   (reduce state-extractor
           zero
           (map monadic-statistic-constructor data)))
+
+;;;   ___                              _    _      __   __          _
+;;;  / __|___ _ __  _ __  ___ ___ __ _| |__| |___  \ \ / /__ _ _ __(_)___ _ _
+;;; | (__/ _ \ '  \| '_ \/ _ (_-</ _` | '_ \ / -_)  \ V / -_) '_(_-< / _ \ ' \
+;;;  \___\___/_|_|_| .__/\___/__/\__,_|_.__/_\___|   \_/\___|_| /__/_\___/_||_|
+;;;                |_|
+
+(defn- rng-c [state-map]
+  (let [s (:seed state-map)
+        m 259200
+        v (/ (float s) (float m))
+        n (rem (+ 54773 (* 7141 s)) m)]
+    [v (assoc state-map :seed n)]))
+
+(defn- summer-c [v] (fn [s] [v (assoc s :sum (+ v (:sum s)))]))
+
+(defn- welford-c [v] (fn [s] [v (let [count    (inc (:count s))
+                                   sum      (+ v (:sum s))
+                                   old-mean (:mean s)
+                                   ssq      (:sum-squared-residuals s)
+                                   new-mean (/ (float sum) count)]
+                               ;; "into" allows s to have other
+                               ;; key-value pairs, thus to be be
+                               ;; composable with other state-monadic
+                               ;; values; it is MUCH slower than the
+                               ;; non-composable version above.
+                               (into s {:count count
+                                        :sum   sum
+                                        :mean  new-mean
+                                        :sum-squared-residuals
+                                        (+ ssq (* (- v old-mean) (- v new-mean)))
+                                        }))]))
+
+(def ^:private welford-zero-c
+  {:count 0, :sum 0, :mean 0, :sum-squared-residuals 0, :seed 123456})
+
+;;;  __  __                  _  __      __
+;;; |  \/  |___ _ _  __ _ __| | \ \    / /_ _ _ _ _ __ _  _ _ __
+;;; | |\/| / _ \ ' \/ _` / _` |  \ \/\/ / _` | '_| '  \ || | '_ \
+;;; |_|  |_\___/_||_\__,_\__,_|   \_/\_/\__,_|_| |_|_|_\_,_| .__/
+;;;                                                        |_|
 
 (deftest monad-warmup
   (testing "basic monadic operators"
@@ -360,9 +423,9 @@
           ssqres   2.0
           ssum   129
           swelf  {:count scount
-                 ,:sum ssum
-                 ,:mean smean
-                 ,:sum-squared-residuals ssqres}]
+                  ,:sum ssum
+                  ,:mean smean
+                  ,:sum-squared-residuals ssqres}]
 
       (is (= scount (run 0 bumper data)))
       (is (= ssum   (run 0 summer data)))
@@ -376,10 +439,53 @@
     (is (roughly 1   1   0  ))
     (is (roughly 1.0 1.0 0.1))
 
+    (let [gaussian1
+          ;; These all emulate a gaussian with an 11-th-order polynomial
+          ;; via the central-limit theorem.
+          (domonad state-m [x1 rng,  x2 rng,  x3 rng,
+                            x4 rng,  x5 rng,  x6 rng,
+                            x7 rng,  x8 rng,  x9 rng,
+                            x10 rng, x11 rng, x12 rng ]
+                   (- (+ x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12) 6.0))
+
+          gaussian2
+          (fn [initial-seed]
+           (let [s (-<> ((domonad state-m
+                                  [x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   x1 (m-bind rng-c summer-c)
+                                   ]
+                                  x1)
+                         {:sum 0 :seed initial-seed})
+                        (get 1))]
+             [(- (:sum s) 6.0) (:seed s)]
+             ))
+
+          gaussian3
+          (with-monad state-m
+            ((m-lift 1 #(- % 6.0))
+             (m-reduce + (repeat 12 rng))))]
+
+      (is (= (nth (val-seq gaussian1 123456) 1000)
+             (nth (val-seq gaussian2 123456) 1000)))
+
+      (is (= (nth (val-seq gaussian1 123456) 1000)
+             (nth (val-seq gaussian3 123456) 1000)))
+      )
+
     (let [xs (with-monad state-m
                (let [gaussian3
                      ((m-lift 1 #(- % 6.0))
-                      (m-reduce + (replicate 12 rng)))]
+                      (m-reduce + (repeat 12 rng)))]
                  (take 1000 (val-seq gaussian3 123456))))]
       (is (roughly (seq-mean xs) 0 0.1))
       (is (roughly (seq-variance xs) 1 0.05))

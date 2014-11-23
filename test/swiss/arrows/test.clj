@@ -194,13 +194,74 @@
                     (if (string? "adf") "some" <>)
                     (str <> " + more"))
            "some + more"))
+
+    (is (nil? (some-<> "abc"
+                       (if (string? "adf") nil <>)
+                       (str " + more"))))
+    (is (= (some-<> "abc"
+                    (if (string? "adf") "some" <>)
+                    (str " + more"))
+           "some + more"))
+
     (is (nil? (some-<>> "abc"
                         (if (string? "adf") nil)
                         (str <> "+ more"))))
     (is (= (some-<>> "abc"
                      (if (string? "adf") "some")
                      (str <> "+ more"))
-           "some+ more"))))
+           "some+ more"))
+
+    (is (= "abc" (some-<> "abc" identity)))
+
+    (is (= "abc" (some-<>> "abc" identity)))
+
+    (is (nil? (some-<> "abc" ((constantly nil)))))
+
+    (is (nil? (some-<>> "abc" ((constantly nil)))))
+
+    (is (nil? (some-<> "abc" ((constantly nil)) identity)))
+
+    (is (nil? (some-<>> "abc" ((constantly nil)) identity)))
+
+
+
+    (is (= "abc" (=<> maybe-m "abc" identity)))
+
+    (is (= "abc" (=<> maybe-m "abc" identity identity)))
+
+    (is (nil? (=<> maybe-m "abc" (constantly nil) identity)))
+
+    (is (nil? (=<> maybe-m "abc" identity (constantly nil) identity)))
+
+    (is (nil?
+         (domonad maybe-m
+                  [s "abc"
+                   t0 (if (string? "adf") nil s)
+                   t1 (str t0 " + more")]
+                  t1)))
+
+    (is nil? (=<> maybe-m "abc"
+                  (fn [s] s)
+                  (fn [s] (if (string? "adf") nil s))
+                  (fn [s] (str s " + more"))
+                  ))
+
+    (is (nil?
+         (with-monad maybe-m
+           ((m-chain
+             [(fn [s] s)
+              (fn [s] (if (string? "adf") nil s))
+              (fn [s] (str s " + more"))
+              ])
+            "abc"))))
+
+    (is (= "some + more"
+           (domonad maybe-m
+                    [s "abc"
+                     t0 (if (string? "adf") "some" s)
+                     t1 (str t0 " + more")]
+                    t1))))
+  )
 
 (deftest applicative
   (testing "applicative arrows"
@@ -434,38 +495,50 @@
     (is (roughly 1   1   0  ))
     (is (roughly 1.0 1.0 0.1))
 
-;;;   ___                 _            __   __          _
-;;;  / __|__ _ _  _ _____(_)__ _ _ _   \ \ / /__ _ _ __(_)___ _ _  ___
-;;; | (_ / _` | || (_-<_-< / _` | ' \   \ V / -_) '_(_-< / _ \ ' \(_-<
-;;;  \___\__,_|\_,_/__/__/_\__,_|_||_|   \_/\___|_| /__/_\___/_||_/__/
+;;; __   __          _                    __   _   _
+;;; \ \ / /__ _ _ __(_)___ _ _  ___  ___ / _| | |_| |_  ___
+;;;  \ V / -_) '_(_-< / _ \ ' \(_-< / _ \  _| |  _| ' \/ -_)
+;;;   \_/\___|_| /__/_\___/_||_/__/ \___/_|    \__|_||_\___|
+;;;
+;;;   ___                 _
+;;;  / __|__ _ _  _ _____(_)__ _ _ _
+;;; | (_ / _` | || (_-<_-< / _` | ' \
+;;;  \___\__,_|\_,_/__/__/_\__,_|_||_|
 
     (let ;; These all emulate a gaussian with an 11-th-order polynomial
          ;; via the central-limit theorem.
 
-        [gaussian1
+        [
+         ;; fast
+         gaussian1
          (domonad state-m [x1 rng,  x2 rng,  x3 rng,
                            x4 rng,  x5 rng,  x6 rng,
                            x7 rng,  x8 rng,  x9 rng,
                            x10 rng, x11 rng, x12 rng ]
                   (- (+ x1 x2 x3 x4 x5 x6 x7 x8 x9 x10 x11 x12) 6.0))
 
+         ;; faster
          gaussian2
          (with-monad state-m
            ((m-lift 1 #(- % 6.0))
             (m-reduce + (repeat 12 rng))))
 
+         ;; slow (about 3x slower than the above)
          gaussian3
          (fn [initial-seed]
            (let [s (-<> ((domonad state-m
                                   [_ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
+
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
+
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
+
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
                                    _ (m-bind rng-c summer-c)
@@ -476,6 +549,7 @@
              [(- (:sum s) 6.0) (:seed s)]
              ))
 
+         ;; slow (about 3x slower than gaussian1 and gaussian2
          gaussian4
          (fn [initial-seed]
            (let [mc (with-monad state-m
@@ -488,15 +562,13 @@
 
          ]
 
-      (is (= (nth (val-seq gaussian1 123456) 1000)
-             (nth (val-seq gaussian2 123456) 1000)))
-
-      (is (= (nth (val-seq gaussian1 123456) 1000)
-             (nth (val-seq gaussian3 123456) 1000)))
-
-      (is (= (nth (val-seq gaussian1 123456) 1000)
-             (nth (val-seq gaussian4 123456) 1000)))
-      )
+      (let [g1 (time (nth (val-seq gaussian1 123456) 1000))
+            g2 (time (nth (val-seq gaussian2 123456) 1000))
+            g3 (time (nth (val-seq gaussian3 123456) 1000))
+            g4 (time (nth (val-seq gaussian4 123456) 1000))]
+        (is (= g1 g2))
+        (is (= g1 g3))
+        (is (= g1 g4))))
 
     (let [xs (with-monad state-m
                (let [gaussian3

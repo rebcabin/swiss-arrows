@@ -1,4 +1,5 @@
-(ns swiss.arrows)
+(ns swiss.arrows
+  (:require [clojure.algo.monads :refer :all]))
 
 (defmacro ^:internal -<>*
   "helper macro used by public API macros -<> and -<>>.
@@ -30,6 +31,45 @@
      (vector? form)       (substitute-pos form)
      (map? form)          (apply hash-map (mapcat substitute-pos form))
      (= 1 c)              `(~(first form) ~@(substitute-pos (next form))))))
+
+(defmacro ^:internal =<>*
+  "TODO"
+  [form default-position]
+  (let [substitute-pos (fn [x form'] (replace {'<> x} form'))
+        count-pos (fn [form'] (count (filter (partial = '<>) form')))
+        c (cond
+           (or (seq? form) (vector? form)) (count-pos form)
+           (map? form) (count-pos (mapcat concat form))
+           :otherwise 0)]
+    (cond
+     (> c 1)              (throw
+                           (Exception.
+                            "No more than one position per form is allowed."))
+     (or (symbol? form)
+         (keyword? form)) `(fn [s#] (~form s#))
+     (= 0 c)              (cond (vector? form)
+                                (if (= :first default-position)
+                                  `(fn [s#] (vec (cons s# ~form)))
+                                  `(fn [s#] (conj ~form s#))) ,
+                                (coll? form)
+                                (if (= :first default-position)
+                                  `(fn [s#] (~(first form) s# ~@(next form)))
+                                  `(fn [s#] (~(first form) ~@(next form) s#))) ,
+                                :otherwise `(fn [s#] ~form))
+     (vector? form)       `(fn [s#] (substitute-pos s# form))
+     (map? form)          `(fn [s#] (apply hash-map
+                                          (mapcat
+                                           (partial substitute-pos s#)
+                                           form)))
+     (= 1 c)              `(fn [s#] (~(first form)
+                                    (~substitute-pos s# ~(next form)))))))
+
+(defmacro =<>
+  "the 'monadic diamond wand': top-level threading of monadic values
+   through expressions"
+  [monad x & forms]
+  `(with-monad ~monad
+     ((m-chain [~@forms]) ~x)))
 
 (defmacro -<>
   "the 'diamond wand': top-level insertion of x in place of single
